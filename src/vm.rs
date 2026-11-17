@@ -282,6 +282,9 @@ pub struct GicDisabled;
 ///
 /// This object can be safely shared among threads and guarantees the VM to exist as long as this
 /// handle does.
+///
+/// If native VM destruction fails while dropping this handle, the process
+/// aborts: continuing could release resources still accessible to the VM.
 #[derive(Clone, Debug)]
 pub struct VirtualMachineInstance<Gic> {
     pub(crate) _guard: Option<Arc<()>>,
@@ -295,9 +298,8 @@ impl<Gic> std::ops::Drop for VirtualMachineInstance<Gic> {
         let guard = self._guard.take().unwrap();
         // If this call succeeds, we know it's the last Arc reference, no other VM instance exists
         // or can be created from this object at this point. We can safely destroy the VM.
-        if Arc::into_inner(guard).is_some() {
-            // WARN: fails silently if the VM instance could not be cleaned up.
-            let _ = hv_unsafe_call!(hv_vm_destroy());
+        if Arc::into_inner(guard).is_some() && hv_unsafe_call!(hv_vm_destroy()).is_err() {
+            std::process::abort();
         }
     }
 }
@@ -795,6 +797,29 @@ mod tests {
 
         let vm = VirtualMachine::new();
         assert!(vm.is_ok());
+    }
+
+    #[test]
+    fn failed_vm_destruction_aborts() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::Command;
+
+        const CHILD: &str = "APPLEVISOR_TEST_FAILED_VM_DESTRUCTION";
+        if std::env::var_os(CHILD).is_some() {
+            let vm = VirtualMachine::new().unwrap();
+            // Remove the native VM behind its handle to force the destructor's
+            // native call to fail, without introducing a production test hook.
+            assert!(hv_unsafe_call!(hv_vm_destroy()).is_ok());
+            drop(vm);
+            return;
+        }
+
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "vm::tests::failed_vm_destruction_aborts"])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert_eq!(status.signal(), Some(6)); // SIGABRT on macOS.
     }
 
     #[test]
