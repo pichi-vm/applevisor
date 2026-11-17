@@ -9,7 +9,7 @@ permissions:
   statuses: write
 
 env:
-  REVISION: 504b14dedc82eb0a7e4270a77deccdd3398ffef7
+  REVISION: 1f60794ae520bc5701ea9d35ca2c2048e3c76923
 
 jobs:
   native-vm:
