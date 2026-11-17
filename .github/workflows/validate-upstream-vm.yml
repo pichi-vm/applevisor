@@ -1,0 +1,95 @@
+name: Validate upstream VM patch
+
+on:
+  push:
+    branches: [validation/checked-vm-retirement]
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  REVISION: bf0f5dc7e0441bdf744ac7177c0f09076103931e
+
+jobs:
+  native-vm:
+    runs-on: [self-hosted, macOS, ARM64, bare-metal, m1]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.REVISION }}
+      - name: Verify revision
+        run: test "$(git rev-parse HEAD)" = "$REVISION"
+      - name: Install Rust
+        run: rustup toolchain install nightly-2026-07-06 --profile minimal
+      - name: Build VM tests
+        run: >-
+          cargo +nightly-2026-07-06 test --no-default-features
+          --features macos-15-0 --lib --no-run --message-format=json
+          > build.json
+      - name: Sign and run native VM tests
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+
+          with open("build.json") as source:
+              artifacts = [json.loads(line) for line in source]
+          executables = [
+              item["executable"] for item in artifacts
+              if item.get("reason") == "compiler-artifact"
+              and item.get("profile", {}).get("test")
+              and "lib" in item.get("target", {}).get("kind", [])
+              and item.get("executable")
+          ]
+          assert len(executables) == 1, executables
+          executable = executables[0]
+          subprocess.run([
+              "codesign", "--force", "--sign", "-", "--entitlements",
+              "entitlements.xml", executable,
+          ], check=True)
+          listing = subprocess.check_output(
+              [executable, "vm::tests::", "--list"], text=True,
+          )
+          for name in (
+              "checked_destroy_retains_vm_until_handles_and_children_are_released",
+              "failed_gic_initialization_returns_vm_for_cleanup",
+          ):
+              assert "vm::tests::" + name + ": test" in listing, listing
+          # This M1 lane does not qualify nested EL2. The unchanged upstream
+          # config_el2 test requires enabling it even when capability is false.
+          subprocess.run([
+              executable, "vm::tests::", "--test-threads=1",
+              "--skip", "vm::tests::config_el2",
+          ], check=True)
+          PY
+      - name: Report validation result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import urllib.request
+
+          env = os.environ
+          state = "success" if env["RESULT"] == "success" else "failure"
+          payload = json.dumps({
+              "state": state,
+              "context": "Native VM lifetime",
+              "description": "Exact revision native VM lifetime validation",
+              "target_url": f"{env['GITHUB_SERVER_URL']}/{env['GITHUB_REPOSITORY']}/actions/runs/{env['GITHUB_RUN_ID']}",
+          }).encode()
+          request = urllib.request.Request(
+              f"{env['GITHUB_API_URL']}/repos/{env['GITHUB_REPOSITORY']}/statuses/{env['REVISION']}",
+              data=payload,
+              headers={"Authorization": "Bearer " + env["GH_TOKEN"],
+                       "Accept": "application/vnd.github+json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              assert response.status == 201, response.status
+          PYTHON
