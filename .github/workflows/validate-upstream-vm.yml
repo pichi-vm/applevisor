@@ -9,7 +9,7 @@ permissions:
   statuses: write
 
 env:
-  REVISION: bf0f5dc7e0441bdf744ac7177c0f09076103931e
+  REVISION: 504b14dedc82eb0a7e4270a77deccdd3398ffef7
 
 jobs:
   native-vm:
@@ -53,8 +53,8 @@ jobs:
               [executable, "vm::tests::", "--list"], text=True,
           )
           for name in (
-              "checked_destroy_retains_vm_until_handles_and_children_are_released",
-              "failed_gic_initialization_returns_vm_for_cleanup",
+              "failed_vm_destruction_aborts",
+              "create_a_vm_with_a_gic",
           ):
               assert "vm::tests::" + name + ": test" in listing, listing
           # This M1 lane does not qualify nested EL2. The unchanged upstream
