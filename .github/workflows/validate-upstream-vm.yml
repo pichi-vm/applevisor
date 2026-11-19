@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        revision: [47ea5d9f7ac7c962b422117fa97b799dfdd4e7d7, a5a04d4a352f148d7c914b80afa27cbeb80638c3]
+        revision: [cab125899c1419deb4a0fe0f0571e0ba9d479e00, 2e38fb0e372e2bb8fbb90cbf89f5931b710c32a4]
     env:
       REVISION: ${{ matrix.revision }}
     runs-on: [self-hosted, macOS, ARM64, bare-metal, m1]
@@ -63,7 +63,7 @@ jobs:
               "create_a_vm_with_a_gic",
           ):
               assert "vm::tests::" + name + ": test" in listing, listing
-          if os.environ["REVISION"] == "a5a04d4a352f148d7c914b80afa27cbeb80638c3":
+          if os.environ["REVISION"] == "2e38fb0e372e2bb8fbb90cbf89f5931b710c32a4":
               assert "vm::tests::roll_back_after_gic_setup_fails: test" in listing, listing
           # This M1 lane does not qualify nested EL2. The unchanged upstream
           # config_el2 test requires enabling it even when capability is false.
